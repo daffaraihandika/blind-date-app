@@ -13,10 +13,12 @@ import {
   ArrowRight,
   CheckCircle2,
   Camera,
+  AlertCircle,
 } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Gender } from "@/types/auth";
+import { createClient } from "@/lib/supabase/client";
 
 export default function SignupForm() {
   const [fullName, setFullName] = useState("");
@@ -30,7 +32,10 @@ export default function SignupForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const supabase = createClient();
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -59,15 +64,37 @@ export default function SignupForm() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setServerError(null);
     if (!validate()) return;
 
     setIsLoading(true);
-    setTimeout(() => {
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password,
+        options: {
+          data: {
+            full_name: fullName.trim(),
+            phone: phone.trim(),
+            gender: gender,
+            birth_date: birthDate,
+          },
+        },
+      });
+
+      if (error) {
+        setServerError(error.message);
+      } else {
+        setIsSuccess(true);
+      }
+    } catch (err: any) {
+      setServerError(err.message || "Terjadi kesalahan pada koneksi server.");
+    } finally {
       setIsLoading(false);
-      setIsSuccess(true);
-    }, 1200);
+    }
   };
 
   return (
@@ -82,34 +109,34 @@ export default function SignupForm() {
             <Camera className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
-            Akun Berhasil Dibuat!
+            Pendaftaran Berhasil!
           </h2>
           <p className="text-xs text-zinc-500 mt-2 max-w-xs leading-relaxed">
-            Langkah selanjutnya adalah <strong>Verifikasi Selfie Langsung</strong>{" "}
-            untuk memastikan foto kamu asli dan mengaktifkan kartu swipe.
+            Akunmu telah terdaftar di database. Langkah selanjutnya adalah{" "}
+            <strong>Verifikasi Selfie Langsung</strong> untuk mengaktifkan kartu
+            swipe.
           </p>
 
           <div className="w-full bg-rose-50/80 dark:bg-zinc-800/80 border border-rose-200/60 dark:border-zinc-700 rounded-2xl p-4 mt-5 text-left flex items-start gap-3">
             <ShieldCheck className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
             <div className="text-[11px] text-zinc-600 dark:text-zinc-300">
               <span className="font-semibold text-rose-600 dark:text-rose-400 block">
-                Privasi Terjamin
+                Keamanan Terjamin
               </span>
-              Selfie live akan menjadi foto utama profilmu untuk menghindari
-              catfishing & penipuan.
+              Data profilmu telah tersimpan dengan aman di database.
             </div>
           </div>
 
-          <Button
-            variant="primary"
-            size="lg"
-            fullWidth
-            className="mt-6"
-            onClick={() => setIsSuccess(false)}
-            rightIcon={<ArrowRight className="w-4 h-4" />}
-          >
-            Lanjut Ambil Selfie (Demo)
-          </Button>
+          <Link href="/login" className="w-full mt-6">
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
+              rightIcon={<ArrowRight className="w-4 h-4" />}
+            >
+              Masuk ke Akun
+            </Button>
+          </Link>
         </motion.div>
       ) : (
         <motion.form
@@ -119,6 +146,14 @@ export default function SignupForm() {
           onSubmit={handleSubmit}
           className="flex flex-col gap-3.5"
         >
+          {/* Server Error Alert */}
+          {serverError && (
+            <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/60 flex items-start gap-2.5 text-red-600 dark:text-red-300 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{serverError}</span>
+            </div>
+          )}
+
           {/* Full Name */}
           <Input
             label="Nama Lengkap"
@@ -155,7 +190,7 @@ export default function SignupForm() {
             type="tel"
             inputMode="tel"
             autoComplete="tel"
-            helperText="Digunakan untuk notifikasi undangan kencan instan"
+            helperText="Digunakan untuk notifikasi kencan via WhatsApp"
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
@@ -267,8 +302,8 @@ export default function SignupForm() {
           <div className="bg-rose-50/70 dark:bg-zinc-800/80 border border-rose-200/50 dark:border-zinc-700/80 rounded-2xl p-3 flex items-start gap-2.5 my-1">
             <ShieldCheck className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
             <p className="text-[11px] text-zinc-600 dark:text-zinc-300 leading-snug">
-              <strong>Anti-Catfishing:</strong> Setelah pendaftaran, kamu wajib
-              mengambil foto selfie live untuk memverifikasi keaslian akun.
+              <strong>Anti-Catfishing:</strong> Setiap pengguna wajib mengambil
+              foto selfie langsung untuk memastikan kencan nyata yang aman.
             </p>
           </div>
 
@@ -308,7 +343,7 @@ export default function SignupForm() {
             rightIcon={<ArrowRight className="w-4 h-4" />}
             className="mt-3"
           >
-            Daftar & Ambil Selfie
+            Daftar Akun Baru
           </Button>
 
           {/* Bottom Switch to Login */}

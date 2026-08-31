@@ -3,9 +3,10 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Mail, Lock, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginForm() {
   const [identifier, setIdentifier] = useState("");
@@ -13,17 +14,18 @@ export default function LoginForm() {
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
+
+  const supabase = createClient();
 
   const validate = () => {
     const newErrors: { identifier?: string; password?: string } = {};
     if (!identifier.trim()) {
-      newErrors.identifier = "Email atau nomor WhatsApp wajib diisi";
+      newErrors.identifier = "Email akun wajib diisi";
     }
     if (!password) {
       newErrors.password = "Kata sandi wajib diisi";
-    } else if (password.length < 6) {
-      newErrors.password = "Kata sandi minimal 6 karakter";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -31,14 +33,31 @@ export default function LoginForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setServerError(null);
     if (!validate()) return;
 
     setIsLoading(true);
-    // Simulating authentication delay for realistic UX preview
-    setTimeout(() => {
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: identifier.trim(),
+        password: password,
+      });
+
+      if (error) {
+        setServerError(
+          error.message === "Invalid login credentials"
+            ? "Email atau kata sandi tidak cocok. Silakan coba lagi."
+            : error.message
+        );
+      } else {
+        setIsSuccess(true);
+      }
+    } catch (err: any) {
+      setServerError(err.message || "Terjadi kesalahan saat masuk.");
+    } finally {
       setIsLoading(false);
-      setIsSuccess(true);
-    }, 1200);
+    }
   };
 
   return (
@@ -49,22 +68,25 @@ export default function LoginForm() {
           animate={{ opacity: 1, scale: 1 }}
           className="flex flex-col items-center text-center justify-center py-12 px-4"
         >
-          <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-full flex items-center justify-center text-emerald-500 mb-4">
+          <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/60 rounded-full flex items-center justify-center text-emerald-500 mb-4 animate-bounce">
             <CheckCircle2 className="w-9 h-9" />
           </div>
           <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
             Login Berhasil!
           </h2>
-          <p className="text-xs text-zinc-500 mt-2 max-w-xs">
-            Selamat datang kembali di BlindDate. Memuat feed swipe terdekatmu...
+          <p className="text-xs text-zinc-500 mt-2 max-w-xs leading-relaxed">
+            Selamat datang kembali di BlindDate. Memverifikasi session dan memuat profil kencanmu...
           </p>
+
           <Button
             variant="primary"
-            size="md"
+            size="lg"
             className="mt-6"
-            onClick={() => setIsSuccess(false)}
+            onClick={() => {
+              window.location.href = "/";
+            }}
           >
-            Kembali ke Form (Demo)
+            Lanjut ke Beranda
           </Button>
         </motion.div>
       ) : (
@@ -75,12 +97,20 @@ export default function LoginForm() {
           onSubmit={handleSubmit}
           className="flex flex-col gap-4"
         >
-          {/* Email / WhatsApp Input */}
+          {/* Server Error Alert */}
+          {serverError && (
+            <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800/60 flex items-start gap-2.5 text-red-600 dark:text-red-300 text-xs">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{serverError}</span>
+            </div>
+          )}
+
+          {/* Email Input */}
           <Input
-            label="Email atau No. WhatsApp"
-            placeholder="nama@email.com / 08123456789"
-            type="text"
-            autoComplete="username"
+            label="Email Akun"
+            placeholder="nama@email.com"
+            type="email"
+            autoComplete="email"
             value={identifier}
             onChange={(e) => {
               setIdentifier(e.target.value);
@@ -121,7 +151,7 @@ export default function LoginForm() {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                alert("Fitur reset sandi via WhatsApp OTP akan hadir di tahap backend.");
+                alert("Fitur lupa kata sandi akan mengirimkan email reset resmi dari Supabase.");
               }}
               className="text-rose-600 hover:text-rose-700 dark:text-rose-400 font-semibold hover:underline"
             >
@@ -158,7 +188,14 @@ export default function LoginForm() {
             variant="social"
             size="md"
             fullWidth
-            onClick={() => alert("Google OAuth akan terhubung saat integrasi Supabase Auth.")}
+            onClick={async () => {
+              await supabase.auth.signInWithOAuth({
+                provider: "google",
+                options: {
+                  redirectTo: `${window.location.origin}/auth/callback`,
+                },
+              });
+            }}
             leftIcon={
               <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path
