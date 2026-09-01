@@ -257,7 +257,7 @@ export default function OnboardingPage() {
                   </div>
                 </div>
 
-                <Link href="/" className="w-full">
+                <Link href="/feed" className="w-full">
                   <Button
                     variant="primary"
                     size="lg"

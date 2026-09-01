@@ -13,10 +13,13 @@ interface InterestsSelectorProps {
 const AVAILABLE_INTERESTS = [
   { id: "coffee", label: "Ngopi Santai", icon: "☕" },
   { id: "foodie", label: "Wisata Kuliner", icon: "🍕" },
-  { id: "cinema", label: "Nonton Film", icon: "🎬" },
-  { id: "music", label: "Musik Indie", icon: "🎵" },
+  { id: "padel", label: "Padel", icon: "🎾" },
+  { id: "gym", label: "Gym & Fitness", icon: "🏋️" },
+  { id: "football", label: "Sepak Bola", icon: "⚽" },
   { id: "badminton", label: "Badminton", icon: "🏸" },
   { id: "running", label: "Jogging", icon: "🏃" },
+  { id: "cinema", label: "Nonton Film", icon: "🎬" },
+  { id: "music", label: "Musik Indie", icon: "🎵" },
   { id: "books", label: "Buku & Baca", icon: "📚" },
   { id: "travel", label: "Traveling", icon: "✈️" },
   { id: "art", label: "Museum & Seni", icon: "🎨" },
@@ -30,13 +33,10 @@ const AVAILABLE_INTERESTS = [
 const CITIES = [
   "Jakarta Selatan",
   "Jakarta Pusat",
+  "Jakarta Barat",
+  "Jakarta Timur",
+  "Jakarta Utara",
   "Bandung",
-  "Depok (UI)",
-  "Tangerang / BSD",
-  "Yogyakarta",
-  "Surabaya",
-  "Semarang",
-  "Bali",
 ];
 
 export default function InterestsSelector({

@@ -22,8 +22,8 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}/onboarding`);
       }
 
-      // Jika sudah verifikasi selfie, langsung masuk ke beranda/feed
-      return NextResponse.redirect(`${origin}/`);
+      // Jika sudah verifikasi selfie, langsung masuk ke feed kencan
+      return NextResponse.redirect(`${origin}/feed`);
     }
   }
 

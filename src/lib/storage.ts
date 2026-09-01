@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 
 /**
- * Uploads the verified live selfie to Supabase Storage bucket 'avatars'
+ * Uploads the verified live selfie to Supabase Storage bucket 'avatars' (Strictly for live selfie)
  */
 export async function uploadAvatar(
   userId: string,
@@ -36,7 +36,7 @@ export async function uploadAvatar(
 }
 
 /**
- * Uploads up to 3 optional supporting gallery photos to Supabase Storage
+ * Uploads up to 3 optional supporting gallery photos to Supabase Storage bucket 'photos'
  */
 export async function uploadSupportingPhotos(
   userId: string,
@@ -49,7 +49,7 @@ export async function uploadSupportingPhotos(
     try {
       const filePath = `${userId}/supporting_${Date.now()}_${i + 1}.jpg`;
       const { data, error } = await supabase.storage
-        .from("avatars")
+        .from("photos")
         .upload(filePath, photoBlobs[i], {
           contentType: "image/jpeg",
           upsert: true,
@@ -57,12 +57,12 @@ export async function uploadSupportingPhotos(
 
       if (!error && data) {
         const { data: publicUrlData } = supabase.storage
-          .from("avatars")
+          .from("photos")
           .getPublicUrl(data.path);
         uploadedUrls.push(publicUrlData.publicUrl);
       }
     } catch (err) {
-      console.warn("Failed uploading supporting photo index:", i, err);
+      console.warn("Failed uploading supporting photo to 'photos' bucket index:", i, err);
     }
   }
 
@@ -70,7 +70,7 @@ export async function uploadSupportingPhotos(
 }
 
 /**
- * Updates the user's profile with verified selfie, supporting photos, bio, and interests
+ * Updates the user's profile with verified selfie, supporting photos, bio, interests and prompts
  */
 export async function completeUserProfile(
   userId: string,
@@ -80,21 +80,28 @@ export async function completeUserProfile(
     bio: string;
     city: string;
     interests: string[];
+    prompts?: { question: string; answer: string }[];
   }
 ) {
   const supabase = createClient();
 
+  const updatePayload: any = {
+    avatar_url: data.avatarUrl,
+    photos: data.supportingPhotos || [],
+    interests: data.interests || [],
+    is_selfie_verified: true,
+    bio: data.bio,
+    city: data.city,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (data.prompts) {
+    updatePayload.prompts = data.prompts;
+  }
+
   const { error } = await supabase
     .from("profiles")
-    .update({
-      avatar_url: data.avatarUrl,
-      photos: data.supportingPhotos || [],
-      interests: data.interests || [],
-      is_selfie_verified: true,
-      bio: data.bio,
-      city: data.city,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", userId);
 
   return { error };

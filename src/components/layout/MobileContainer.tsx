@@ -16,20 +16,10 @@ export default function MobileContainer({ children, className = "" }: MobileCont
 
       {/* Mobile viewport container */}
       <main
-        className={`relative w-full max-w-[430px] min-h-screen sm:min-h-[880px] sm:max-h-[92vh] sm:rounded-[38px] bg-white dark:bg-zinc-900 shadow-2xl sm:shadow-rose-950/40 border-0 sm:border sm:border-zinc-200/20 overflow-hidden flex flex-col ${className}`}
+        className={`relative w-full max-w-[430px] h-screen sm:h-[880px] sm:max-h-[92vh] sm:rounded-[38px] bg-white dark:bg-zinc-900 shadow-2xl sm:shadow-rose-950/40 border-0 sm:border sm:border-zinc-200/20 overflow-hidden flex flex-col ${className}`}
       >
-        {/* iOS style top notch/status bar indicator on desktop view */}
-        <div className="hidden sm:flex justify-between items-center px-7 pt-3 pb-1 text-xs font-semibold text-zinc-400 select-none">
-          <span>9:41</span>
-          <div className="w-20 h-4 bg-zinc-800 rounded-full mx-auto" />
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-2 border border-zinc-500 rounded-xs" />
-            <div className="w-2 h-2 rounded-full bg-zinc-500" />
-          </div>
-        </div>
-
         {/* Dynamic page content */}
-        <div className="flex-1 flex flex-col overflow-y-auto">{children}</div>
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">{children}</div>
       </main>
     </div>
   );

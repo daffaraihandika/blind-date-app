@@ -68,7 +68,7 @@ export default function LoginForm() {
           if (!profile || !profile.is_selfie_verified) {
             router.push("/onboarding");
           } else {
-            router.push("/");
+            router.push("/feed");
           }
         }, 800);
       }
