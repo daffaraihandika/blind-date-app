@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Mail, Lock, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
 import { Input } from "@/components/ui/Input";
@@ -17,6 +18,7 @@ export default function LoginForm() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
 
+  const router = useRouter();
   const supabase = createClient();
 
   const validate = () => {
@@ -39,7 +41,7 @@ export default function LoginForm() {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: identifier.trim(),
         password: password,
       });
@@ -50,12 +52,28 @@ export default function LoginForm() {
             ? "Email atau kata sandi tidak cocok. Silakan coba lagi."
             : error.message
         );
-      } else {
+        setIsLoading(false);
+      } else if (authData?.user) {
         setIsSuccess(true);
+
+        // Periksa apakah user sudah menyelesaikan onboarding verifikasi selfie
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("is_selfie_verified")
+          .eq("id", authData.user.id)
+          .single();
+
+        // Redirect otomatis
+        setTimeout(() => {
+          if (!profile || !profile.is_selfie_verified) {
+            router.push("/onboarding");
+          } else {
+            router.push("/");
+          }
+        }, 800);
       }
     } catch (err: any) {
       setServerError(err.message || "Terjadi kesalahan saat masuk.");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -75,19 +93,8 @@ export default function LoginForm() {
             Login Berhasil!
           </h2>
           <p className="text-xs text-zinc-500 mt-2 max-w-xs leading-relaxed">
-            Selamat datang kembali di BlindDate. Memverifikasi session dan memuat profil kencanmu...
+            Mengarahkan ke akunmu...
           </p>
-
-          <Button
-            variant="primary"
-            size="lg"
-            className="mt-6"
-            onClick={() => {
-              window.location.href = "/";
-            }}
-          >
-            Lanjut ke Beranda
-          </Button>
         </motion.div>
       ) : (
         <motion.form

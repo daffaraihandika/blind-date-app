@@ -4,17 +4,29 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  // if 'next' is in the query params, use it as the redirect destination
-  const next = searchParams.get("next") ?? "/";
 
   if (code) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (!error && data?.user) {
+      // Periksa apakah user sudah menyelesaikan onboarding verifikasi selfie
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_selfie_verified")
+        .eq("id", data.user.id)
+        .single();
+
+      // Jika belum verifikasi selfie, otomatis arahkan ke onboarding
+      if (!profile || !profile.is_selfie_verified) {
+        return NextResponse.redirect(`${origin}/onboarding`);
+      }
+
+      // Jika sudah verifikasi selfie, langsung masuk ke beranda/feed
+      return NextResponse.redirect(`${origin}/`);
     }
   }
 
-  // If there's an error exchanging the code, redirect to login with error query param
+  // Jika otentikasi gagal, kembalikan ke login
   return NextResponse.redirect(`${origin}/login?error=oauth_failed`);
 }

@@ -127,14 +127,14 @@ export default function SignupForm() {
             </div>
           </div>
 
-          <Link href="/login" className="w-full mt-6">
+          <Link href="/onboarding" className="w-full mt-6">
             <Button
               variant="primary"
               size="lg"
               fullWidth
               rightIcon={<ArrowRight className="w-4 h-4" />}
             >
-              Masuk ke Akun
+              Lanjut Ambil Selfie Live
             </Button>
           </Link>
         </motion.div>
