@@ -10,13 +10,15 @@ export const metadata: Metadata = {
 
 export default function LoginPage() {
   return (
-    <div className="flex flex-col flex-1 w-full min-h-full">
+    <div className="flex flex-col flex-1 w-full h-full min-h-0 overflow-y-auto no-scrollbar">
       <AuthHeader
         title="Selamat Datang Kembali"
         subtitle="Masuk untuk melihat kencan yang tertunda & swipe calon kencanmu."
         badgeText="Real Dates, No Endless Chat"
       />
       <LoginForm />
+      {/* Bottom breathing space */}
+      <div className="h-6 shrink-0" />
     </div>
   );
 }

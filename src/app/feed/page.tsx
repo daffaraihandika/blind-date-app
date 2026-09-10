@@ -1,40 +1,70 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { RefreshCw, Coffee } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { AnimatePresence } from "framer-motion";
 import MobileContainer from "@/components/layout/MobileContainer";
 import AppHeader from "@/components/layout/AppHeader";
 import BottomNav from "@/components/layout/BottomNav";
 import DateProfileCard from "@/components/swipe/DateProfileCard";
 import SwipeActions from "@/components/swipe/SwipeActions";
 import MatchModal from "@/components/swipe/MatchModal";
-import { Button } from "@/components/ui/Button";
+import FeedEmptyState from "@/components/swipe/FeedEmptyState";
+import FeedSkeleton from "@/components/swipe/FeedSkeleton";
+import CityFilterModal from "@/components/swipe/CityFilterModal";
+import DatePlannerModal from "@/components/dates/DatePlannerModal";
 import { ProfileFeedCard, SwipeDirection, MatchEvent } from "@/types/match";
-import { MOCK_PROFILES } from "@/lib/mock-profiles";
+import { Gender } from "@/types/auth";
 import { createClient } from "@/lib/supabase/client";
+import { fetchFeedProfiles, recordSwipe } from "@/lib/matchmaking";
 
 export default function FeedPage() {
-  const [profiles, setProfiles] = useState<ProfileFeedCard[]>(MOCK_PROFILES);
-  const [history, setHistory] = useState<ProfileFeedCard[]>([]);
+  const router = useRouter();
+  const [profiles, setProfiles] = useState<ProfileFeedCard[]>([]);
   const [matchEvent, setMatchEvent] = useState<MatchEvent | null>(null);
+  const [activeMatchForPlanning, setActiveMatchForPlanning] = useState<{
+    matchId: string;
+    partnerId: string;
+    partnerName: string;
+    partnerAvatar?: string;
+    city: string;
+  } | null>(null);
+
+  const [selectedCity, setSelectedCity] = useState<string>("");
+  const [isCityModalOpen, setIsCityModalOpen] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isLoadingCity, setIsLoadingCity] = useState(false);
+
   const [currentUser, setCurrentUser] = useState<{
-    id?: string;
-    avatarUrl?: string;
-    gender?: "female" | "male";
-    city?: string;
+    id: string;
+    fullName: string;
+    avatarUrl: string;
+    gender: Gender;
+    city: string;
   }>({
-    city: "Jakarta Selatan",
+    id: "",
+    fullName: "Kamu",
+    avatarUrl: "",
+    gender: "male",
+    city: "",
   });
 
   const supabase = createClient();
 
+  // 1. Initial Data Bootstrap
   useEffect(() => {
-    async function loadData() {
+    async function bootstrap() {
+      setIsInitializing(true);
       try {
         const {
           data: { user },
         } = await supabase.auth.getUser();
+
+        let userId = "";
+        let userFullName = "Kamu";
+        let userAvatarUrl = "";
+        let userGender: Gender = "male";
+        let userCity = "Jakarta Selatan";
 
         if (user) {
           const { data: profile } = await supabase
@@ -44,104 +74,127 @@ export default function FeedPage() {
             .single();
 
           if (profile) {
-            setCurrentUser({
-              id: profile.id,
-              avatarUrl: profile.avatar_url,
-              gender: profile.gender,
-              city: profile.city || "Jakarta Selatan",
-            });
-          }
-
-          // Fetch other profiles from Supabase
-          const { data: otherProfiles } = await supabase
-            .from("profiles")
-            .select("*")
-            .neq("id", user.id)
-            .limit(10);
-
-          if (otherProfiles && otherProfiles.length > 0) {
-            const formattedRealProfiles: ProfileFeedCard[] = otherProfiles.map(
-              (p, idx) => ({
-                id: p.id,
-                fullName: p.full_name,
-                age: p.birth_date
-                  ? new Date().getFullYear() - new Date(p.birth_date).getFullYear()
-                  : 24,
-                gender: p.gender,
-                city: p.city || "Jakarta Selatan",
-                distanceKm: idx + 2,
-                bio: p.bio || "Pecinta kencan santai di coffee shop favorit.",
-                selfieVerified: p.is_selfie_verified ?? true,
-                avatarUrl:
-                  p.avatar_url ||
-                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
-                photos: p.photos && p.photos.length > 0 ? p.photos : [],
-                interests:
-                  p.interests && p.interests.length > 0
-                    ? p.interests.map((i: string) => ({
-                        id: i,
-                        label: i.charAt(0).toUpperCase() + i.slice(1),
-                        icon: "☕",
-                      }))
-                    : [
-                        { id: "coffee", label: "Ngopi", icon: "☕" },
-                        { id: "music", label: "Musik", icon: "🎵" },
-                      ],
-                prompts: [
-                  {
-                    question: "Tempat kencan pertama impianku...",
-                    answer: "Kafe tenang dengan kopi enak dan suasana santai.",
-                  },
-                ],
-              })
-            );
-
-            // Merge real profiles with mock profiles
-            setProfiles([...formattedRealProfiles, ...MOCK_PROFILES]);
+            userId = profile.id;
+            userFullName = profile.full_name || user.user_metadata?.full_name || "Kamu";
+            userAvatarUrl = profile.avatar_url || "";
+            userGender = profile.gender || "male";
+            userCity = profile.city || "Jakarta Selatan";
           }
         }
+
+        setCurrentUser({
+          id: userId,
+          fullName: userFullName,
+          avatarUrl: userAvatarUrl,
+          gender: userGender,
+          city: userCity,
+        });
+        setSelectedCity(userCity);
+
+        // Fetch candidate cards for the exact user gender & city
+        const candidates = await fetchFeedProfiles(userId, userGender, userCity);
+        setProfiles(candidates);
       } catch (err) {
-        console.warn("Feed data fetch notice:", err);
+        console.warn("Bootstrap feed error:", err);
+      } finally {
+        setIsInitializing(false);
       }
     }
-    loadData();
+
+    bootstrap();
   }, [supabase]);
+
+  // 2. Load Feed for a specific city when user switches location
+  const handleSelectCity = useCallback(
+    async (newCity: string) => {
+      setSelectedCity(newCity);
+      setIsLoadingCity(true);
+      try {
+        const candidates = await fetchFeedProfiles(
+          currentUser.id,
+          currentUser.gender,
+          newCity
+        );
+        setProfiles(candidates);
+      } catch (err) {
+        console.error("Error changing city feed:", err);
+      } finally {
+        setIsLoadingCity(false);
+      }
+    },
+    [currentUser.id, currentUser.gender]
+  );
+
+  // 3. Refresh current feed
+  const handleRefreshFeed = useCallback(async () => {
+    setIsLoadingCity(true);
+    try {
+      const candidates = await fetchFeedProfiles(
+        currentUser.id,
+        currentUser.gender,
+        selectedCity
+      );
+      setProfiles(candidates);
+    } catch (err) {
+      console.error("Error refreshing feed:", err);
+    } finally {
+      setIsLoadingCity(false);
+    }
+  }, [currentUser.id, currentUser.gender, selectedCity]);
 
   const topCard = profiles[0];
 
-  // Handle Swipe Action
-  const handleSwipe = (direction: SwipeDirection) => {
+  // 4. Handle Swipe Action (Like or Pass)
+  const handleSwipe = async (direction: SwipeDirection) => {
     if (profiles.length === 0) return;
 
     const swipedUser = profiles[0];
-    setHistory((prev) => [swipedUser, ...prev]);
+
+    // Optimistically remove card from deck
     setProfiles((prev) => prev.slice(1));
 
-    // Simulate Match Event when user swipes right
-    if (direction === "right") {
-      setMatchEvent({
-        matchedUser: swipedUser,
-        currentUserAvatar: currentUser.avatarUrl,
-        currentUserGender: currentUser.gender || "female",
-      });
-    }
-  };
+    // Record swipe to Supabase 'swipes' table & check for mutual match
+    if (currentUser.id && swipedUser.id) {
+      const result = await recordSwipe(currentUser.id, swipedUser.id, direction);
 
-  // Reset Feed
-  const handleResetFeed = () => {
-    setProfiles(MOCK_PROFILES);
-    setHistory([]);
+      if (result.isMatch) {
+        setMatchEvent({
+          matchedUser: swipedUser,
+          currentUserAvatar: currentUser.avatarUrl,
+          currentUserName: currentUser.fullName,
+          currentUserGender: currentUser.gender,
+        });
+
+        if (result.matchRecord?.id) {
+          setActiveMatchForPlanning({
+            matchId: result.matchRecord.id,
+            partnerId: swipedUser.id,
+            partnerName: swipedUser.fullName,
+            partnerAvatar: swipedUser.avatarUrl,
+            city: swipedUser.city || selectedCity,
+          });
+        }
+      }
+    }
   };
 
   return (
     <MobileContainer>
-      <div className="flex flex-col flex-1 h-full min-h-0 justify-between bg-zinc-50 dark:bg-zinc-950 overflow-hidden relative">
-        {/* Top App Header */}
-        <AppHeader currentCity={currentUser.city || "Jakarta Selatan"} />
+      <div className="flex flex-col flex-1 h-full min-h-0 justify-between bg-zinc-50 dark:bg-zinc-950 overflow-hidden relative select-none">
+        {/* Top App Header with Shimmer Loading & Filter Icon */}
+        <AppHeader
+          currentCity={selectedCity || "Jakarta Selatan"}
+          isLoading={isInitializing}
+          onFilterClick={() => setIsCityModalOpen(true)}
+        />
 
-        {/* Swipe Cards Deck Area (Full Height to BottomNav) */}
+        {/* Swipe Cards Deck Area */}
         <main className="relative flex-1 w-full min-h-0 p-2.5 flex items-center justify-center overflow-hidden">
-          {profiles.length > 0 ? (
+          {isInitializing || isLoadingCity ? (
+            /* Smooth Loading Skeleton State (No Layout Shift) */
+            <FeedSkeleton />
+          ) : profiles.length > 0 ? (
+            /* Active Card Deck */
             <div className="relative w-full h-full">
               <AnimatePresence>
                 {profiles
@@ -160,7 +213,7 @@ export default function FeedPage() {
                   })}
               </AnimatePresence>
 
-              {/* Floating 2-Button Action Bar (Overlaying at bottom of card) */}
+              {/* Floating 2-Button Action Bar (Pass & Like) */}
               <SwipeActions
                 onPass={() => handleSwipe("left")}
                 onLike={() => handleSwipe("right")}
@@ -168,37 +221,26 @@ export default function FeedPage() {
               />
             </div>
           ) : (
-            /* Empty Deck State */
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center text-center p-8 max-w-xs mx-auto my-auto"
-            >
-              <div className="w-16 h-16 rounded-3xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200/60 dark:border-rose-800/40 flex items-center justify-center text-rose-500 mb-4 shadow-sm">
-                <Coffee className="w-8 h-8" />
-              </div>
-              <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-50">
-                Semua Profil Sudah Dilihat!
-              </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1.5 leading-relaxed">
-                Belum ada calon kencan baru di sekitarmu. Coba perluas filter area atau muat ulang deck kencan.
-              </p>
-
-              <Button
-                variant="outline"
-                size="md"
-                className="mt-5"
-                onClick={handleResetFeed}
-                leftIcon={<RefreshCw className="w-4 h-4" />}
-              >
-                Muat Ulang Feed
-              </Button>
-            </motion.div>
+            /* Radar Empty State (When all cards in area are swiped) */
+            <FeedEmptyState
+              selectedCity={selectedCity}
+              onChangeCityClick={() => setIsCityModalOpen(true)}
+              onRefreshClick={handleRefreshFeed}
+              isLoading={isLoadingCity}
+            />
           )}
         </main>
 
         {/* Bottom Navigation Bar */}
         <BottomNav />
+
+        {/* City / Area Filter Modal */}
+        <CityFilterModal
+          isOpen={isCityModalOpen}
+          onClose={() => setIsCityModalOpen(false)}
+          selectedCity={selectedCity}
+          onSelectCity={handleSelectCity}
+        />
 
         {/* Mutual Match Celebration Modal */}
         <MatchModal
@@ -206,9 +248,31 @@ export default function FeedPage() {
           onClose={() => setMatchEvent(null)}
           onPlanDate={() => {
             setMatchEvent(null);
-            alert("Langkah berikutnya: Membuka formulir pemilihan kafe kencan bagi perempuan!");
+            // If match data ready, open planner modal; otherwise go to /dates
+            if (activeMatchForPlanning) {
+              // Date planner will open automatically through activeMatchForPlanning state
+            } else {
+              router.push("/dates");
+            }
           }}
         />
+
+        {/* Date Planner Modal (Triggered post-match) */}
+        {activeMatchForPlanning && !matchEvent && (
+          <DatePlannerModal
+            isOpen={Boolean(activeMatchForPlanning)}
+            onClose={() => setActiveMatchForPlanning(null)}
+            matchId={activeMatchForPlanning.matchId}
+            partnerId={activeMatchForPlanning.partnerId}
+            partnerName={activeMatchForPlanning.partnerName}
+            partnerAvatar={activeMatchForPlanning.partnerAvatar}
+            city={activeMatchForPlanning.city}
+            onInvitationSent={() => {
+              setActiveMatchForPlanning(null);
+              router.push("/dates");
+            }}
+          />
+        )}
       </div>
     </MobileContainer>
   );

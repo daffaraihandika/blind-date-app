@@ -32,7 +32,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref
   ) => {
     const baseStyles =
-      "inline-flex items-center justify-center font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed select-none active:scale-[0.98]";
+      "inline-flex flex-row items-center justify-center font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed select-none active:scale-[0.98]";
 
     const sizeStyles = {
       sm: "h-9 px-3.5 text-xs rounded-xl gap-1.5",
@@ -71,9 +71,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           <Loader2 className="w-5 h-5 animate-spin" />
         ) : (
           <>
-            {leftIcon && <span className="inline-flex shrink-0">{leftIcon}</span>}
-            <span>{children}</span>
-            {rightIcon && <span className="inline-flex shrink-0">{rightIcon}</span>}
+            {leftIcon && <span className="inline-flex items-center justify-center shrink-0 mr-1.5">{leftIcon}</span>}
+            <span className="inline-flex items-center justify-center">{children}</span>
+            {rightIcon && <span className="inline-flex items-center justify-center shrink-0 ml-1.5">{rightIcon}</span>}
           </>
         )}
       </motion.button>
