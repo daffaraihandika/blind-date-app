@@ -8,6 +8,7 @@ export interface Venue {
 }
 
 export type InvitationStatus =
+  | "needs_venue_selection"
   | "pending_confirmation"
   | "confirmed"
   | "completed"
@@ -30,6 +31,7 @@ export interface DateInvitation {
 
 export interface DateInvitationWithPartner extends DateInvitation {
   isInviter: boolean;
+  canPlanDate?: boolean;
   partner: {
     id: string;
     fullName: string;

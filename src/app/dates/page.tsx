@@ -6,6 +6,7 @@ import { Coffee, Heart, Calendar, Clock, RefreshCw, Sparkles } from "lucide-reac
 import MobileContainer from "@/components/layout/MobileContainer";
 import BottomNav from "@/components/layout/BottomNav";
 import DateInvitationCard from "@/components/dates/DateInvitationCard";
+import DatePlannerModal from "@/components/dates/DatePlannerModal";
 import DatesSkeleton from "@/components/dates/DatesSkeleton";
 import { Button } from "@/components/ui/Button";
 import { DateInvitationWithPartner, InvitationStatus } from "@/types/date";
@@ -19,6 +20,19 @@ export default function DatesPage() {
   const [invitations, setInvitations] = useState<DateInvitationWithPartner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userId, setUserId] = useState<string>("");
+  const [userProfile, setUserProfile] = useState<{
+    gender: string;
+    city: string;
+    fullName: string;
+  } | null>(null);
+
+  const [activeMatchForPlanning, setActiveMatchForPlanning] = useState<{
+    matchId: string;
+    partnerId: string;
+    partnerName: string;
+    partnerAvatar?: string;
+    city: string;
+  } | null>(null);
 
   const supabase = createClient();
 
@@ -43,6 +57,22 @@ export default function DatesPage() {
 
       if (user) {
         setUserId(user.id);
+
+        // Fetch current user profile to determine gender & city
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("gender, city, full_name")
+          .eq("id", user.id)
+          .single();
+
+        if (profile) {
+          setUserProfile({
+            gender: profile.gender || "female",
+            city: profile.city || "Jakarta Selatan",
+            fullName: profile.full_name || "",
+          });
+        }
+
         await loadDates(user.id);
       } else {
         setIsLoading(false);
@@ -52,18 +82,29 @@ export default function DatesPage() {
     init();
   }, [supabase, loadDates]);
 
-  // Supabase Realtime Subscription for Live Updates
+  // Supabase Realtime Subscription for Live Updates on invitations & matches
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel("realtime-date-invitations")
+      .channel("realtime-dates-and-matches")
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table: "date_invitations",
+        },
+        () => {
+          loadDates(userId);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "matches",
         },
         () => {
           loadDates(userId);
@@ -92,8 +133,20 @@ export default function DatesPage() {
     }
   };
 
+  // Handle Cancel Invitation
+  const handleCancelInvitation = async (invitationId: string, matchId: string) => {
+    const ok = await updateInvitationStatus(invitationId, matchId, "canceled");
+    if (ok) {
+      await loadDates(userId);
+    }
+  };
+
+  const isFemale = userProfile?.gender === "female";
+
   // Filter invitations by active tab
-  const pendingDates = invitations.filter((i) => i.status === "pending_confirmation");
+  const pendingDates = invitations.filter(
+    (i) => i.status === "pending_confirmation" || i.status === "needs_venue_selection"
+  );
   const confirmedDates = invitations.filter((i) => i.status === "confirmed");
   const historyDates = invitations.filter(
     (i) => i.status === "completed" || i.status === "declined" || i.status === "canceled"
@@ -137,16 +190,18 @@ export default function DatesPage() {
           <button
             type="button"
             onClick={() => setActiveTab("pending")}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 ${
+            className={`flex-1 py-2 px-1 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 ${
               activeTab === "pending"
                 ? "bg-rose-500 text-white shadow-xs"
                 : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200"
             }`}
           >
-            <span>Undangan</span>
+            <span className="truncate">
+              {isFemale ? "Undangan & Atur Kencan" : "Undangan"}
+            </span>
             {pendingDates.length > 0 && (
               <span
-                className={`text-[9px] px-1.5 py-0.2 rounded-full font-black ${
+                className={`text-[9px] px-1.5 py-0.2 rounded-full font-black shrink-0 ${
                   activeTab === "pending"
                     ? "bg-white text-rose-500"
                     : "bg-rose-500 text-white"
@@ -205,6 +260,16 @@ export default function DatesPage() {
                   invitation={inv}
                   onConfirm={handleConfirmInvitation}
                   onDecline={handleDeclineInvitation}
+                  onCancel={handleCancelInvitation}
+                  onPlanDate={(dateInv) => {
+                    setActiveMatchForPlanning({
+                      matchId: dateInv.matchId,
+                      partnerId: dateInv.partner.id,
+                      partnerName: dateInv.partner.fullName,
+                      partnerAvatar: dateInv.partner.avatarUrl,
+                      city: userProfile?.city || dateInv.partner.city || "Jakarta Selatan",
+                    });
+                  }}
                 />
               ))}
               <div className="h-6" />
@@ -217,7 +282,9 @@ export default function DatesPage() {
               </div>
               <h3 className="text-base font-extrabold text-zinc-900 dark:text-zinc-50">
                 {activeTab === "pending"
-                  ? "Belum Ada Undangan Kencan"
+                  ? isFemale
+                    ? "Belum Ada Undangan / Match Baru"
+                    : "Belum Ada Undangan Kencan"
                   : activeTab === "confirmed"
                   ? "Belum Ada Kencan Terkonfirmasi"
                   : "Belum Ada Riwayat Kencan"}
@@ -245,6 +312,23 @@ export default function DatesPage() {
             </div>
           )}
         </main>
+
+        {/* Date Planner Modal */}
+        {activeMatchForPlanning && (
+          <DatePlannerModal
+            isOpen={Boolean(activeMatchForPlanning)}
+            onClose={() => setActiveMatchForPlanning(null)}
+            matchId={activeMatchForPlanning.matchId}
+            partnerId={activeMatchForPlanning.partnerId}
+            partnerName={activeMatchForPlanning.partnerName}
+            partnerAvatar={activeMatchForPlanning.partnerAvatar}
+            city={activeMatchForPlanning.city}
+            onInvitationSent={() => {
+              setActiveMatchForPlanning(null);
+              loadDates(userId);
+            }}
+          />
+        )}
 
         {/* Bottom Navigation Bar */}
         <BottomNav />

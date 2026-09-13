@@ -80,7 +80,38 @@ export async function createDateInvitation(
 }
 
 /**
- * Fetches all date invitations involving the current user, joined with partner profile details
+ * Checks if a date and time slot has passed current time (+ buffer in hours)
+ */
+export function isDateTimePassed(
+  dateSlot: string,
+  timeSlot: string,
+  bufferHours = 2
+): boolean {
+  try {
+    if (!dateSlot) return false;
+    const timeMatch = timeSlot ? timeSlot.match(/(\d{1,2}):(\d{2})/) : null;
+    let hours = 20; // default evening
+    let minutes = 0;
+    if (timeMatch) {
+      hours = parseInt(timeMatch[1], 10);
+      minutes = parseInt(timeMatch[2], 10);
+    }
+
+    const [year, month, day] = dateSlot.split("-").map((s) => parseInt(s, 10));
+    if (!year || !month || !day) return false;
+
+    const targetDate = new Date(year, month - 1, day, hours, minutes, 0);
+    const expiryTime = targetDate.getTime() + bufferHours * 60 * 60 * 1000;
+
+    return Date.now() >= expiryTime;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Fetches all date invitations and pending matches involving the current user,
+ * joined with partner profile details.
  */
 export async function fetchUserDateInvitations(
   userId: string
@@ -88,35 +119,67 @@ export async function fetchUserDateInvitations(
   try {
     const supabase = createClient();
 
-    // 1. Fetch invitations
-    const { data: invitations, error } = await supabase
+    // 1. Fetch existing date invitations
+    const { data: invitations } = await supabase
       .from("date_invitations")
       .select("*")
       .or(`inviter_id.eq.${userId},invitee_id.eq.${userId}`)
       .order("created_at", { ascending: false });
 
-    if (error || !invitations || invitations.length === 0) {
+    const existingInvitations = invitations || [];
+    const invitationMatchIds = new Set(existingInvitations.map((inv) => inv.match_id));
+
+    // 2. Fetch matches that have not yet created a date invitation (status = 'matched')
+    const { data: matches } = await supabase
+      .from("matches")
+      .select("*")
+      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+      .eq("status", "matched")
+      .order("created_at", { ascending: false });
+
+    // Filter out matches that already have an invitation
+    const pendingMatches = (matches || []).filter(
+      (m) => !invitationMatchIds.has(m.id)
+    );
+
+    if (existingInvitations.length === 0 && pendingMatches.length === 0) {
       return [];
     }
 
-    // 2. Extract partner IDs
-    const partnerIds = invitations.map((inv) =>
-      inv.inviter_id === userId ? inv.invitee_id : inv.inviter_id
-    );
+    // 3. Extract all partner IDs and include current user to check profile/gender
+    const partnerIds = new Set<string>();
+    for (const inv of existingInvitations) {
+      partnerIds.add(inv.inviter_id === userId ? inv.invitee_id : inv.inviter_id);
+    }
+    for (const m of pendingMatches) {
+      partnerIds.add(m.user1_id === userId ? m.user2_id : m.user1_id);
+    }
+    partnerIds.add(userId);
 
-    // 3. Fetch partner profiles
+    // 4. Fetch profiles for partners and current user
     const { data: profiles } = await supabase
       .from("profiles")
       .select("id, full_name, avatar_url, gender, phone, city, bio")
-      .in("id", partnerIds);
+      .in("id", Array.from(partnerIds));
 
     const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
+    const currentUserProfile = profileMap.get(userId);
 
-    // 4. Merge into final format
-    return invitations.map((inv) => {
+    // 5. Map invitations to DateInvitationWithPartner & check for auto-completion
+    const passedToComplete: { id: string; matchId: string }[] = [];
+
+    const mappedInvitations: DateInvitationWithPartner[] = existingInvitations.map((inv) => {
       const isInviter = inv.inviter_id === userId;
       const partnerId = isInviter ? inv.invitee_id : inv.inviter_id;
       const partner = profileMap.get(partnerId);
+
+      let currentStatus = inv.status as InvitationStatus;
+
+      // Auto-detect completed date: if date and time slot have passed (+ 2h buffer)
+      if (currentStatus === "confirmed" && isDateTimePassed(inv.date_slot, inv.time_slot)) {
+        currentStatus = "completed";
+        passedToComplete.push({ id: inv.id, matchId: inv.match_id });
+      }
 
       return {
         id: inv.id,
@@ -127,10 +190,11 @@ export async function fetchUserDateInvitations(
         city: inv.city,
         dateSlot: inv.date_slot,
         timeSlot: inv.time_slot,
-        status: inv.status as InvitationStatus,
+        status: currentStatus,
         createdAt: inv.created_at,
         updatedAt: inv.updated_at,
         isInviter,
+        canPlanDate: false,
         partner: {
           id: partnerId,
           fullName: partner?.full_name || "Pasangan Kencan",
@@ -142,6 +206,65 @@ export async function fetchUserDateInvitations(
         },
       };
     });
+
+    // Asynchronously update status in Supabase for auto-completed dates
+    if (passedToComplete.length > 0) {
+      Promise.all(
+        passedToComplete.map(({ id, matchId }) =>
+          updateInvitationStatus(id, matchId, "completed")
+        )
+      ).catch((err) => console.warn("Auto-completion sync warning:", err));
+    }
+
+    // 6. Map pending matches (needs_venue_selection) to DateInvitationWithPartner
+    const mappedMatches: DateInvitationWithPartner[] = pendingMatches.map((m) => {
+      const partnerId = m.user1_id === userId ? m.user2_id : m.user1_id;
+      const partner = profileMap.get(partnerId);
+
+      // Determine whether the current user is female / has authority to pick venue
+      const isCurrentUserFemale =
+        m.female_id === userId ||
+        currentUserProfile?.gender === "female" ||
+        partner?.gender === "male";
+
+      const defaultCity =
+        (isCurrentUserFemale ? currentUserProfile?.city : partner?.city) ||
+        currentUserProfile?.city ||
+        partner?.city ||
+        "Jakarta Selatan";
+
+      return {
+        id: m.id,
+        matchId: m.id,
+        inviterId: isCurrentUserFemale ? userId : partnerId,
+        inviteeId: isCurrentUserFemale ? partnerId : userId,
+        venueName: "",
+        city: defaultCity,
+        dateSlot: "",
+        timeSlot: "",
+        status: "needs_venue_selection" as InvitationStatus,
+        createdAt: m.created_at,
+        updatedAt: m.updated_at,
+        isInviter: isCurrentUserFemale,
+        canPlanDate: isCurrentUserFemale,
+        partner: {
+          id: partnerId,
+          fullName: partner?.full_name || "Pasangan Match",
+          avatarUrl: partner?.avatar_url || "",
+          gender: partner?.gender || "male",
+          phone: partner?.phone || "",
+          city: partner?.city || defaultCity,
+          bio: partner?.bio || "",
+        },
+      };
+    });
+
+    // 7. Merge and sort by createdAt descending
+    const allItems = [...mappedInvitations, ...mappedMatches].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    return allItems;
   } catch (err) {
     console.error("fetchUserDateInvitations error:", err);
     return [];
@@ -172,11 +295,21 @@ export async function updateInvitationStatus(
       return false;
     }
 
-    // If confirmed, update match table
-    if (newStatus === "confirmed") {
+    // Update match table status accordingly
+    const matchStatusMap: Record<string, string> = {
+      confirmed: "date_confirmed",
+      completed: "completed",
+      canceled: "date_canceled",
+      declined: "date_declined",
+    };
+
+    if (matchStatusMap[newStatus]) {
       await supabase
         .from("matches")
-        .update({ status: "date_confirmed", updated_at: new Date().toISOString() })
+        .update({
+          status: matchStatusMap[newStatus],
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", matchId);
     }
 

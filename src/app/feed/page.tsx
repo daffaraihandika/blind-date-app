@@ -166,12 +166,18 @@ export default function FeedPage() {
         });
 
         if (result.matchRecord?.id) {
+          // Prioritize female's city for first date venue recommendation
+          const femaleCity =
+            currentUser.gender === "female"
+              ? currentUser.city || "Jakarta Selatan"
+              : swipedUser.city || currentUser.city || "Jakarta Selatan";
+
           setActiveMatchForPlanning({
             matchId: result.matchRecord.id,
             partnerId: swipedUser.id,
             partnerName: swipedUser.fullName,
             partnerAvatar: swipedUser.avatarUrl,
-            city: swipedUser.city || selectedCity,
+            city: femaleCity,
           });
         }
       }

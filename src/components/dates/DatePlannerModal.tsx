@@ -11,7 +11,9 @@ import {
   Sparkles,
   ShieldCheck,
   Send,
-  Search,
+  ChevronDown,
+  Check,
+  Navigation,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -30,10 +32,19 @@ interface DatePlannerModalProps {
   onInvitationSent?: () => void;
 }
 
-const TIME_SLOTS = [
-  { id: "16:00 WIB", label: "16:00 WIB (Sore Santai)", desc: "Cocok untuk kopi & ngobrol sore" },
-  { id: "19:00 WIB", label: "19:00 WIB (Malam)", desc: "Suasana santai setelah beraktivitas" },
-  { id: "14:00 WIB", label: "14:00 WIB (Siang)", desc: "Waktu kencan cerah di akhir pekan" },
+const CITIES = [
+  "Jakarta Selatan",
+  "Jakarta Pusat",
+  "Jakarta Barat",
+  "Jakarta Timur",
+  "Jakarta Utara",
+  "Bandung",
+];
+
+const TIME_PRESETS = [
+  { id: "16:00 WIB", time24: "16:00", label: "Sore Santai" },
+  { id: "19:00 WIB", time24: "19:00", label: "Malam Hari" },
+  { id: "14:00 WIB", time24: "14:00", label: "Siang Santai" },
 ];
 
 function getUpcomingDays() {
@@ -52,11 +63,25 @@ function getUpcomingDays() {
     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
     days.push({
       dateStr,
-      label: `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]}`,
+      shortLabel: `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]}`,
       isWeekend,
     });
   }
   return days;
+}
+
+function formatDateLabel(dateStr: string): string {
+  try {
+    const d = new Date(dateStr.includes("T") ? dateStr : `${dateStr}T00:00:00`);
+    const dayNames = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+    const monthNames = [
+      "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+      "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+    ];
+    return `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+  } catch {
+    return dateStr;
+  }
 }
 
 export default function DatePlannerModal({
@@ -69,14 +94,19 @@ export default function DatePlannerModal({
   city = "Jakarta Selatan",
   onInvitationSent,
 }: DatePlannerModalProps) {
+  const [selectedCity, setSelectedCity] = useState<string>(city || "Jakarta Selatan");
+  const [isCityDropdownOpen, setIsCityDropdownOpen] = useState(false);
+
   const [venues, setVenues] = useState<Venue[]>([]);
-  const [selectedSubArea, setSelectedSubArea] = useState<string>("Semua");
   const [venueSearch, setVenueSearch] = useState<string>("");
   const [selectedVenueName, setSelectedVenueName] = useState<string>("");
 
   const upcomingDays = getUpcomingDays();
-  const [selectedDate, setSelectedDate] = useState<string>(upcomingDays[0]?.dateStr || "");
-  const [selectedTime, setSelectedTime] = useState<string>(TIME_SLOTS[0].id);
+  const todayDateStr = new Date().toISOString().split("T")[0];
+  const [selectedDate, setSelectedDate] = useState<string>(upcomingDays[0]?.dateStr || todayDateStr);
+
+  const [selectedTime, setSelectedTime] = useState<string>(TIME_PRESETS[0].id);
+  const [customTimeInput, setCustomTimeInput] = useState<string>("16:00");
 
   const [isLoadingVenues, setIsLoadingVenues] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,33 +114,39 @@ export default function DatePlannerModal({
 
   const supabase = createClient();
 
-  // Load curated venues when modal opens
+  // Synchronize city prop when modal opens
   useEffect(() => {
     if (isOpen) {
+      setSelectedCity(city || "Jakarta Selatan");
+    }
+  }, [isOpen, city]);
+
+  // Load curated venues when selectedCity changes
+  useEffect(() => {
+    if (isOpen && selectedCity) {
       async function load() {
         setIsLoadingVenues(true);
-        const data = await fetchVenuesByCity(city);
+        const data = await fetchVenuesByCity(selectedCity);
         setVenues(data);
         if (data.length > 0) {
           setSelectedVenueName(data[0].name);
+        } else {
+          setSelectedVenueName("");
         }
         setIsLoadingVenues(false);
       }
       load();
       setErrorMessage(null);
     }
-  }, [isOpen, city]);
+  }, [isOpen, selectedCity]);
 
   if (!isOpen) return null;
 
-  // Extract unique sub-areas for quick filtering
-  const subAreas = ["Semua", ...Array.from(new Set(venues.map((v) => v.area).filter(Boolean)))];
-
-  // Filtered venues list
+  // Filtered venues list based on search query (No sub-area grouping)
   const filteredVenues = venues.filter((v) => {
-    const matchesArea = selectedSubArea === "Semua" || v.area === selectedSubArea;
-    const matchesSearch = v.name.toLowerCase().includes(venueSearch.toLowerCase()) || (v.area && v.area.toLowerCase().includes(venueSearch.toLowerCase()));
-    return matchesArea && matchesSearch;
+    if (!venueSearch.trim()) return true;
+    const q = venueSearch.toLowerCase();
+    return v.name.toLowerCase().includes(q) || (v.area && v.area.toLowerCase().includes(q));
   });
 
   const handleSubmit = async () => {
@@ -120,6 +156,10 @@ export default function DatePlannerModal({
     }
     if (!selectedDate) {
       setErrorMessage("Silakan pilih tanggal kencan.");
+      return;
+    }
+    if (!selectedTime) {
+      setErrorMessage("Silakan tentukan jam kencan.");
       return;
     }
 
@@ -141,7 +181,7 @@ export default function DatePlannerModal({
         inviterId: user.id,
         inviteeId: partnerId,
         venueName: selectedVenueName.trim(),
-        city,
+        city: selectedCity,
         dateSlot: selectedDate,
         timeSlot: selectedTime,
       });
@@ -167,7 +207,7 @@ export default function DatePlannerModal({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
           transition={{ duration: 0.2 }}
-          className="relative w-full max-w-md h-[90vh] sm:h-[88vh] sm:rounded-[36px] bg-white dark:bg-zinc-900 overflow-hidden flex flex-col shadow-2xl"
+          className="relative w-full max-w-md h-[92vh] sm:h-[88vh] sm:rounded-[36px] bg-white dark:bg-zinc-900 overflow-hidden flex flex-col shadow-2xl"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
@@ -194,7 +234,7 @@ export default function DatePlannerModal({
           </div>
 
           {/* Scrollable Form Body */}
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 text-left no-scrollbar">
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 flex flex-col gap-6 text-left no-scrollbar">
             {/* Error Banner */}
             {errorMessage && (
               <div className="p-3.5 rounded-2xl bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 text-xs">
@@ -202,150 +242,299 @@ export default function DatePlannerModal({
               </div>
             )}
 
-            {/* SECTION 1: VENUE SELECTION */}
+            {/* SECTION 1: VENUE & CITY SELECTION */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">
                   1. Pilih Tempat / Coffee Shop
                 </label>
-                <span className="text-[11px] font-bold text-rose-500 flex items-center gap-1">
-                  <MapPin className="w-3 h-3" />
-                  {city}
-                </span>
+
+                {/* Interactive City Selector Dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsCityDropdownOpen(!isCityDropdownOpen)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-[11px] font-bold text-rose-600 dark:text-rose-300 hover:bg-rose-100 transition-colors"
+                  >
+                    <MapPin className="w-3 h-3 text-rose-500" />
+                    <span>{selectedCity}</span>
+                    <ChevronDown className="w-3 h-3 opacity-70" />
+                  </button>
+
+                  {/* Popover Menu for Cities */}
+                  <AnimatePresence>
+                    {isCityDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                        className="absolute right-0 top-full mt-1.5 z-50 w-44 bg-zinc-900 border border-rose-500/30 rounded-2xl p-1.5 shadow-2xl flex flex-col gap-1 max-h-48 overflow-y-auto"
+                      >
+                        {CITIES.map((c) => {
+                          const isSelected = selectedCity === c;
+                          return (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => {
+                                setSelectedCity(c);
+                                setIsCityDropdownOpen(false);
+                              }}
+                              className={`w-full p-2 rounded-xl text-xs text-left transition-colors flex items-center justify-between ${
+                                isSelected
+                                  ? "bg-rose-500/20 text-rose-300 font-bold border border-rose-500/40"
+                                  : "text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                              }`}
+                            >
+                              <span>{c}</span>
+                              {isSelected && <Check className="w-3 h-3 text-rose-400 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
 
-              {/* Custom Input Field (Can be typed manually or filled by chips) */}
-              <div className="relative mb-3">
+              {/* Custom Input Field (Can be typed manually or filled by recommendations) */}
+              <div className="relative mb-2">
                 <Input
                   label=""
-                  placeholder="Ketik nama kafe favoritmu..."
+                  placeholder="Ketik nama tempat pilihanmu..."
                   value={selectedVenueName}
                   onChange={(e) => setSelectedVenueName(e.target.value)}
                   leftIcon={<Coffee className="w-4 h-4 text-rose-500" />}
                 />
+                {selectedVenueName.trim().length > 0 && (
+                  <div className="mt-1 flex items-center justify-end">
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        `${selectedVenueName} ${selectedCity}`
+                      )}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-500 hover:text-rose-600 hover:underline"
+                    >
+                      <Navigation className="w-3 h-3" />
+                      <span>Cek &quot;{selectedVenueName}&quot; di Google Maps ↗</span>
+                    </a>
+                  </div>
+                )}
               </div>
 
-              {/* Sub-Area Filter Chips */}
-              {subAreas.length > 2 && (
-                <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 mb-2.5">
-                  {subAreas.map((area) => (
-                    <button
-                      key={area}
-                      type="button"
-                      onClick={() => setSelectedSubArea(area as string)}
-                      className={`px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-all ${
-                        selectedSubArea === area
-                          ? "bg-rose-500 text-white shadow-xs"
-                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200"
-                      }`}
-                    >
-                      {area}
-                    </button>
-                  ))}
+              {/* All Curated Recommendations List with Google Maps Links */}
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    Rekomendasi Kafe di {selectedCity}:
+                  </span>
+                  <span className="text-[10px] text-zinc-400">
+                    {filteredVenues.length} tempat
+                  </span>
                 </div>
-              )}
 
-              {/* Curated Recommendations Grid Chips */}
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-1.5">
-                  Rekomendasi Terkurasi di {city}:
-                </span>
-                <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 no-scrollbar">
+                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto p-0.5 no-scrollbar">
                   {isLoadingVenues ? (
-                    <div className="text-xs text-zinc-400 py-2">Memuat rekomendasi kafe...</div>
+                    <div className="text-xs text-zinc-400 py-3 text-center">
+                      Memuat rekomendasi kafe...
+                    </div>
                   ) : filteredVenues.length > 0 ? (
                     filteredVenues.map((v) => {
-                      const isSelected = selectedVenueName === v.name;
+                      const isSelected = selectedVenueName.trim().toLowerCase() === v.name.toLowerCase();
+                      const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        `${v.name} ${selectedCity}`
+                      )}`;
+
                       return (
-                        <button
+                        <div
                           key={v.id}
-                          type="button"
                           onClick={() => setSelectedVenueName(v.name)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                          className={`p-2.5 px-3 rounded-2xl transition-all flex items-center justify-between cursor-pointer border ${
                             isSelected
-                              ? "bg-gradient-to-r from-rose-500 to-orange-500 text-white shadow-xs"
-                              : "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200/60 dark:border-zinc-700/60"
+                              ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-500 text-zinc-900 dark:text-zinc-50 shadow-xs"
+                              : "bg-zinc-50 dark:bg-zinc-800/70 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-zinc-200/80 dark:border-zinc-700/60 text-zinc-800 dark:text-zinc-200"
                           }`}
                         >
-                          <span>☕</span>
-                          <span>{v.name}</span>
-                          {v.area && (
-                            <span className="text-[9px] opacity-75 font-normal">
-                              ({v.area})
-                            </span>
-                          )}
-                        </button>
+                          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                            <div
+                              className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs shrink-0 ${
+                                isSelected
+                                  ? "bg-rose-500 text-white"
+                                  : "bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400"
+                              }`}
+                            >
+                              ☕
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold block truncate">{v.name}</span>
+                              {v.area && (
+                                <span className="text-[10px] text-zinc-400 block truncate">
+                                  {v.area}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {/* Google Maps Button */}
+                            <a
+                              href={gmapsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="px-2.5 py-1 rounded-xl bg-white dark:bg-zinc-900 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-[10px] font-bold text-rose-600 dark:text-rose-400 border border-zinc-200/80 dark:border-zinc-700 flex items-center gap-1 transition-all shadow-xs"
+                              title="Buka lokasi di Google Maps"
+                            >
+                              <Navigation className="w-2.5 h-2.5 text-rose-500" />
+                              <span>Maps</span>
+                            </a>
+
+                            {/* Checkmark when selected */}
+                            {isSelected && (
+                              <div className="w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center shrink-0">
+                                <Check className="w-3 h-3" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       );
                     })
                   ) : (
-                    <div className="text-xs text-zinc-400 py-1">Tidak ada kafe yang cocok dengan pencarian.</div>
+                    <div className="text-xs text-zinc-400 py-3 text-center">
+                      Tidak ada rekomendasi kafe yang cocok.
+                    </div>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* SECTION 2: DATE PICKER */}
+            {/* SECTION 2: FLEXIBLE DATE PICKER */}
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-2">
-                2. Pilih Tanggal Kencan
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {upcomingDays.slice(0, 4).map((d) => {
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  2. Pilih Tanggal Kencan
+                </label>
+                {selectedDate && (
+                  <span className="text-[11px] font-bold text-rose-500">
+                    {formatDateLabel(selectedDate)}
+                  </span>
+                )}
+              </div>
+
+              {/* Quick Day Chips */}
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 mb-2.5">
+                {upcomingDays.map((d) => {
                   const isSelected = selectedDate === d.dateStr;
                   return (
                     <button
                       key={d.dateStr}
                       type="button"
                       onClick={() => setSelectedDate(d.dateStr)}
-                      className={`p-3 rounded-2xl flex flex-col items-start text-left transition-all ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                         isSelected
-                          ? "bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500 text-rose-600 dark:text-rose-300 shadow-xs"
-                          : "bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100"
+                          ? "bg-rose-500 text-white shadow-xs"
+                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200/60 dark:border-zinc-700/60"
                       }`}
                     >
-                      <div className="flex items-center justify-between w-full">
-                        <span className="text-xs font-bold">{d.label}</span>
-                        {d.isWeekend && (
-                          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-300">
-                            Weekend
-                          </span>
-                        )}
-                      </div>
+                      <span>{d.shortLabel}</span>
+                      {d.isWeekend && (
+                        <span
+                          className={`text-[9px] px-1 py-0.2 rounded font-extrabold ${
+                            isSelected
+                              ? "bg-white/25 text-white"
+                              : "bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400"
+                          }`}
+                        >
+                          Wknd
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
+
+              {/* Custom Date Input for Free Date Picking */}
+              <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700">
+                <Calendar className="w-4 h-4 text-rose-500 shrink-0 ml-1" />
+                <div className="flex-1 flex items-center justify-between">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                    Atur tanggal sendiri:
+                  </span>
+                  <input
+                    type="date"
+                    min={todayDateStr}
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-xs font-bold text-zinc-900 dark:text-zinc-100 rounded-xl px-2.5 py-1.5 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                  />
+                </div>
+              </div>
             </div>
 
-            {/* SECTION 3: TIME SLOT PICKER */}
+            {/* SECTION 3: FLEXIBLE TIME PICKER */}
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-400 block mb-2">
-                3. Pilih Jam Kencan
-              </label>
-              <div className="flex flex-col gap-2">
-                {TIME_SLOTS.map((t) => {
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  3. Pilih Waktu Kencan
+                </label>
+                {selectedTime && (
+                  <span className="text-[11px] font-bold text-rose-500">
+                    {selectedTime}
+                  </span>
+                )}
+              </div>
+
+              {/* Quick Time Preset Chips */}
+              <div className="grid grid-cols-3 gap-2 mb-2.5">
+                {TIME_PRESETS.map((t) => {
                   const isSelected = selectedTime === t.id;
                   return (
                     <button
                       key={t.id}
                       type="button"
-                      onClick={() => setSelectedTime(t.id)}
-                      className={`p-3 rounded-2xl flex items-center justify-between transition-all text-left ${
+                      onClick={() => {
+                        setSelectedTime(t.id);
+                        setCustomTimeInput(t.time24);
+                      }}
+                      className={`py-2 px-2 rounded-xl text-center transition-all ${
                         isSelected
-                          ? "bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500 text-rose-600 dark:text-rose-300 shadow-xs"
-                          : "bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100"
+                          ? "bg-rose-500 text-white font-bold shadow-xs"
+                          : "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200/60 dark:border-zinc-700/60"
                       }`}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <Clock className="w-4 h-4 text-rose-500" />
-                        <div>
-                          <span className="text-xs font-bold block">{t.label}</span>
-                          <span className="text-[10px] text-zinc-400">{t.desc}</span>
-                        </div>
-                      </div>
+                      <span className="text-xs block">{t.id}</span>
+                      <span className={`text-[9px] block ${isSelected ? "text-rose-100" : "text-zinc-400"}`}>
+                        {t.label}
+                      </span>
                     </button>
                   );
                 })}
+              </div>
+
+              {/* Custom Time Input for Free Time Picking */}
+              <div className="flex items-center gap-2 p-2.5 rounded-2xl bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700">
+                <Clock className="w-4 h-4 text-rose-500 shrink-0 ml-1" />
+                <div className="flex-1 flex items-center justify-between">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
+                    Atur jam sendiri:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="time"
+                      value={customTimeInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setCustomTimeInput(val);
+                        if (val) {
+                          setSelectedTime(`${val} WIB`);
+                        }
+                      }}
+                      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-xs font-bold text-zinc-900 dark:text-zinc-100 rounded-xl px-2.5 py-1.5 focus:outline-hidden focus:border-rose-500 cursor-pointer"
+                    />
+                    <span className="text-xs font-bold text-zinc-500">WIB</span>
+                  </div>
+                </div>
               </div>
             </div>
 
