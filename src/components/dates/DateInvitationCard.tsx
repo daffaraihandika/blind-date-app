@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   Coffee,
@@ -12,6 +13,7 @@ import {
   Navigation,
   Clock3,
   Sparkles,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { DateInvitationWithPartner } from "@/types/date";
@@ -320,7 +322,18 @@ export default function DateInvitationCard({
       )}
 
       {invitation.status === "confirmed" && (
-        <div className="flex flex-col gap-2.5 pt-1">
+        <div className="flex flex-col gap-2 pt-1">
+          <Link href={`/chat/${invitation.matchId}`} className="w-full">
+            <Button
+              variant="primary"
+              size="md"
+              fullWidth
+              leftIcon={<MessageCircle className="w-4 h-4" />}
+            >
+              Chat Koordinasi Kafe 💬
+            </Button>
+          </Link>
+
           <a
             href={mapsUrl}
             target="_blank"
